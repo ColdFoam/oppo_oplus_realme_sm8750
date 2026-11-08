@@ -312,6 +312,31 @@ jobs:
             patch -p1 -F 3 < 10_enable_susfs_for_ksu.patch || true
           fi
           
+      - name: 移植新版susfs的selinux符号
+        run: |
+          python3 - <<'PYEOF'
+          import urllib.request
+          new = urllib.request.urlopen('https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android15-6.6/kernel_patches/fs/susfs.c').read().decode()
+          lines = new.split('\n')
+          start = next(i for i,l in enumerate(lines) if 'DEFINE_MUTEX(susfs_mutex_lock_sus_type)' in l)
+          fn = next(i for i,l in enumerate(lines) if l.startswith('void susfs_spoof_avd_allowed_rcu'))
+          end = next(i for i in range(fn, len(lines)) if lines[i] == '}')
+          block = '\n'.join(lines[start:end+1])
+          assert 'susfs_add_sus_type' in block and 'susfs_add_sus_avd_allowed_by_type' in block
+          p = 'common/fs/susfs.c'
+          s = open(p).read()
+          old_inc = '#include <linux/security.h>\n#include <linux/susfs.h>'
+          assert old_inc in s
+          s = s.replace(old_inc, '#include <linux/security.h>\n#include <linux/bitmap.h>\n#include <linux/hash.h>\n#include <linux/hashtable.h>\n#include <linux/bitops.h>\n#include <linux/susfs.h>', 1)
+          old_log = '#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#else\n#define SUSFS_LOGI(fmt, ...) \n#define SUSFS_LOGE(fmt, ...) \n#endif'
+          assert old_log in s
+          s = s.replace(old_log, '#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#define SUSFS_LOGI_RL(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info_ratelimited("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#else\n#define SUSFS_LOGI(fmt, ...) \n#define SUSFS_LOGE(fmt, ...) \n#define SUSFS_LOGI_RL(fmt, ...) \n#endif', 1)
+          anchor = '#endif\n\n/* sus_path */'
+          assert anchor in s
+          s = s.replace(anchor, '#endif\n\n/* sus_type port for sync-up */\n' + block + '\n\n/* sus_path */', 1)
+          open(p,'w').write(s)
+          print('susfs selinux port applied')
+          PYEOF
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
