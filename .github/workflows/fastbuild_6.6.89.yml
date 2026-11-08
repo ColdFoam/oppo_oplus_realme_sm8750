@@ -323,7 +323,7 @@ jobs:
           end = next(i for i in range(fn, len(lines)) if lines[i] == '}')
           block = '\n'.join(lines[start:end+1])
           assert 'susfs_add_sus_type' in block and 'susfs_add_sus_avd_allowed_by_type' in block
-          p = 'common/fs/susfs.c'
+          p = 'kernel_workspace/common/fs/susfs.c'
           s = open(p).read()
           old_inc = '#include <linux/security.h>\n#include <linux/susfs.h>'
           assert old_inc in s
