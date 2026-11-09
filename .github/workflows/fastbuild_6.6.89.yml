@@ -293,7 +293,7 @@ jobs:
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
             echo "正在添加susfs补丁..."
-            git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
             cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
@@ -312,36 +312,24 @@ jobs:
             patch -p1 -F 3 < 10_enable_susfs_for_ksu.patch || true
           fi
           
-      - name: 移植新版susfs的selinux符号
+      - name: 补齐base.c的susfs头文件
         run: |
           python3 - <<'PYEOF'
-          import urllib.request
-          new = urllib.request.urlopen('https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android15-6.6/kernel_patches/fs/susfs.c').read().decode()
-          lines = new.split('\n')
-          start = next(i for i,l in enumerate(lines) if 'DEFINE_MUTEX(susfs_mutex_lock_sus_type)' in l)
-          fn = next(i for i,l in enumerate(lines) if l.startswith('void susfs_spoof_avd_allowed_rcu'))
-          end = next(i for i in range(fn, len(lines)) if lines[i] == '}')
-          block = '\n'.join(lines[start:end+1])
-          assert 'susfs_add_sus_type' in block and 'susfs_add_sus_avd_allowed_by_type' in block
-          p = 'kernel_workspace/common/fs/susfs.c'
+          p = 'kernel_workspace/common/fs/proc/base.c'
           s = open(p).read()
-          old_inc = '#include <linux/security.h>\n#include <linux/susfs.h>'
-          assert old_inc in s
-          s = s.replace(old_inc, '#include <linux/security.h>\n#include <linux/bitmap.h>\n#include <linux/hash.h>\n#include <linux/hashtable.h>\n#include <linux/bitops.h>\n#include <linux/susfs.h>', 1)
-          old_log = '#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#else\n#define SUSFS_LOGI(fmt, ...) \n#define SUSFS_LOGE(fmt, ...) \n#endif'
-          assert old_log in s
-          s = s.replace(old_log, '#define SUSFS_LOGE(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_err("susfs:[%u][%d][%s]" fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#define SUSFS_LOGI_RL(fmt, ...) if (static_branch_likely(&susfs_is_log_enabled)) pr_info_ratelimited("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)\n#else\n#define SUSFS_LOGI(fmt, ...) \n#define SUSFS_LOGE(fmt, ...) \n#define SUSFS_LOGI_RL(fmt, ...) \n#endif', 1)
-          anchor = '#endif\n\n/* sus_path */'
+          anchor = '#include <trace/events/oom.h>'
           assert anchor in s
-          s = s.replace(anchor, '#endif\n\n/* sus_type port for sync-up */\n' + block + '\n\n/* sus_path */', 1)
+          assert 'susfs_def.h' not in s
+          ins = '#if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n\n'
+          s = s.replace(anchor, ins + anchor, 1)
           open(p,'w').write(s)
-          print('susfs selinux port applied')
+          print('base.c susfs_def include added')
           PYEOF
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
           echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
-          cd kernel_workspace
+   cd kernel_workspace
           git clone --depth=1 https://github.com/$GITHUB_REPOSITORY.git -b $GITHUB_REF_NAME $GITHUB_ACTOR
           cp ./$GITHUB_ACTOR/zram_patch/001-lz4.patch ./common/
           cp ./$GITHUB_ACTOR/zram_patch/lz4armv8.S ./common/lib
@@ -384,7 +372,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=n" >> ./common/arch/arm64/configs/gki_defconfig
+          
           
       - name: 添加 KSU & 其他配置项
         run: |
