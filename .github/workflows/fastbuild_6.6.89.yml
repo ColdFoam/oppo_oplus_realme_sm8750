@@ -317,13 +317,15 @@ jobs:
           python3 - <<'PYEOF'
           p = 'kernel_workspace/common/fs/proc/base.c'
           s = open(p).read()
-          anchor = '#include <trace/events/oom.h>'
-          assert anchor in s
-          assert 'susfs_def.h' not in s
-          ins = '#if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n\n'
-          s = s.replace(anchor, ins + anchor, 1)
-          open(p,'w').write(s)
-          print('base.c susfs_def include added')
+          if 'susfs_def.h' in s:
+              print('base.c already has susfs_def.h, skip')
+          else:
+              anchor = '#include <trace/events/oom.h>'
+              assert anchor in s
+              ins = '#if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif // #if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n\n'
+              s = s.replace(anchor, ins + anchor, 1)
+              open(p,'w').write(s)
+              print('base.c susfs_def include added')
           PYEOF
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
